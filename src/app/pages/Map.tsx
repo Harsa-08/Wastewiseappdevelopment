@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -6,11 +6,34 @@ import { MapPin, Navigation, Filter } from 'lucide-react';
 import { reportsStorage, eventsStorage } from '../services/storage';
 import { GarbageReport, CleanupEvent } from '../types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { GoogleMap, useJsApiLoader, Marker, InfoWindow } from '@react-google-maps/api';
+
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
+const MAP_CONTAINER_STYLE = { width: '100%', height: '100%', minHeight: '400px', borderRadius: '0.5rem' };
+const DEFAULT_CENTER = { lat: 34.0522, lng: -118.2437 };
 
 export default function Map() {
   const [reports, setReports] = useState<GarbageReport[]>([]);
   const [events, setEvents] = useState<CleanupEvent[]>([]);
   const [filter, setFilter] = useState<'all' | 'reports' | 'events'>('all');
+  
+  const [selectedReport, setSelectedReport] = useState<GarbageReport | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<CleanupEvent | null>(null);
+
+  const { isLoaded } = useJsApiLoader({
+    id: 'google-map-script',
+    googleMapsApiKey: GOOGLE_MAPS_API_KEY
+  });
+
+  const [map, setMap] = useState<google.maps.Map | null>(null);
+
+  const onLoad = useCallback(function callback(map: google.maps.Map) {
+    setMap(map);
+  }, []);
+
+  const onUnmount = useCallback(function callback(map: google.maps.Map) {
+    setMap(null);
+  }, []);
 
   useEffect(() => {
     setReports(reportsStorage.getReports().filter(r => r.status !== 'cleaned'));
@@ -39,21 +62,65 @@ export default function Map() {
 
         <TabsContent value="all" className="mt-6">
           <div className="grid md:grid-cols-2 gap-6">
-            {/* Map Placeholder */}
-            <Card className="md:col-span-2">
-              <CardContent className="p-0">
-                <div className="aspect-video bg-muted flex items-center justify-center rounded-lg">
-                  <div className="text-center">
-                    <MapPin className="h-16 w-16 mx-auto text-primary mb-4" />
-                    <h3 className="text-xl mb-2">Interactive Map</h3>
-                    <p className="text-muted-foreground">
-                      Map visualization showing garbage reports and cleanup events
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-2">
-                      In a real implementation, this would integrate with Google Maps API
-                    </p>
+            {/* Map */}
+            <Card className="md:col-span-2 overflow-hidden">
+              <CardContent className="p-0 h-[400px] relative">
+                {!isLoaded ? (
+                  <div className="w-full h-full bg-muted flex items-center justify-center">
+                    <p className="text-muted-foreground animate-pulse">Loading map...</p>
                   </div>
-                </div>
+                ) : (
+                  <GoogleMap
+                    mapContainerStyle={MAP_CONTAINER_STYLE}
+                    center={DEFAULT_CENTER}
+                    zoom={10}
+                    onLoad={onLoad}
+                    onUnmount={onUnmount}
+                    options={{ disableDefaultUI: true, zoomControl: true }}
+                  >
+                    {reports.map((report) => (
+                      <Marker
+                        key={`report-${report.id}`}
+                        position={{ lat: report.location.lat, lng: report.location.lng }}
+                        onClick={() => { setSelectedReport(report); setSelectedEvent(null); }}
+                        icon={{ url: "http://maps.google.com/mapfiles/ms/icons/red-dot.png" }}
+                      />
+                    ))}
+                    {events.map((event) => (
+                      <Marker
+                        key={`event-${event.id}`}
+                        position={{ lat: event.location.lat, lng: event.location.lng }}
+                        onClick={() => { setSelectedEvent(event); setSelectedReport(null); }}
+                        icon={{ url: "http://maps.google.com/mapfiles/ms/icons/blue-dot.png" }}
+                      />
+                    ))}
+                    
+                    {selectedReport && (
+                      <InfoWindow
+                        position={{ lat: selectedReport.location.lat, lng: selectedReport.location.lng }}
+                        onCloseClick={() => setSelectedReport(null)}
+                      >
+                        <div className="p-2 max-w-[200px] text-sm text-black">
+                          <p className="font-semibold mb-1">Report</p>
+                          <p className="mb-1">{selectedReport.description}</p>
+                          <p className="text-xs text-gray-500">{selectedReport.location.address}</p>
+                        </div>
+                      </InfoWindow>
+                    )}
+
+                    {selectedEvent && (
+                      <InfoWindow
+                        position={{ lat: selectedEvent.location.lat, lng: selectedEvent.location.lng }}
+                        onCloseClick={() => setSelectedEvent(null)}
+                      >
+                        <div className="p-2 max-w-[200px] text-sm text-black">
+                          <p className="font-semibold mb-1">Event: {selectedEvent.title}</p>
+                          <p className="text-xs text-gray-500">{selectedEvent.location.address}</p>
+                        </div>
+                      </InfoWindow>
+                    )}
+                  </GoogleMap>
+                )}
               </CardContent>
             </Card>
 
@@ -118,17 +185,41 @@ export default function Map() {
 
         <TabsContent value="reports" className="mt-6">
           <div className="grid md:grid-cols-2 gap-6">
-            <Card className="md:col-span-2">
-              <CardContent className="p-0">
-                <div className="aspect-video bg-muted flex items-center justify-center rounded-lg">
-                  <div className="text-center">
-                    <MapPin className="h-16 w-16 mx-auto text-destructive mb-4" />
-                    <h3 className="text-xl mb-2">Garbage Reports Map</h3>
-                    <p className="text-muted-foreground">
-                      Showing {reports.length} active garbage reports
-                    </p>
+            <Card className="md:col-span-2 overflow-hidden">
+              <CardContent className="p-0 h-[400px] relative">
+                {!isLoaded ? (
+                  <div className="w-full h-full bg-muted flex items-center justify-center">
+                    <p className="text-muted-foreground animate-pulse">Loading map...</p>
                   </div>
-                </div>
+                ) : (
+                  <GoogleMap
+                    mapContainerStyle={MAP_CONTAINER_STYLE}
+                    center={DEFAULT_CENTER}
+                    zoom={10}
+                    options={{ disableDefaultUI: true, zoomControl: true }}
+                  >
+                    {reports.map((report) => (
+                      <Marker
+                        key={`report-${report.id}`}
+                        position={{ lat: report.location.lat, lng: report.location.lng }}
+                        onClick={() => setSelectedReport(report)}
+                        icon={{ url: "http://maps.google.com/mapfiles/ms/icons/red-dot.png" }}
+                      />
+                    ))}
+                    {selectedReport && (
+                      <InfoWindow
+                        position={{ lat: selectedReport.location.lat, lng: selectedReport.location.lng }}
+                        onCloseClick={() => setSelectedReport(null)}
+                      >
+                        <div className="p-2 max-w-[200px] text-sm text-black">
+                          <p className="font-semibold mb-1">Report</p>
+                          <p className="mb-1">{selectedReport.description}</p>
+                          <p className="text-xs text-gray-500">{selectedReport.location.address}</p>
+                        </div>
+                      </InfoWindow>
+                    )}
+                  </GoogleMap>
+                )}
               </CardContent>
             </Card>
 
@@ -157,17 +248,40 @@ export default function Map() {
 
         <TabsContent value="events" className="mt-6">
           <div className="grid md:grid-cols-2 gap-6">
-            <Card className="md:col-span-2">
-              <CardContent className="p-0">
-                <div className="aspect-video bg-muted flex items-center justify-center rounded-lg">
-                  <div className="text-center">
-                    <MapPin className="h-16 w-16 mx-auto text-primary mb-4" />
-                    <h3 className="text-xl mb-2">Cleanup Events Map</h3>
-                    <p className="text-muted-foreground">
-                      Showing {events.length} upcoming cleanup events
-                    </p>
+            <Card className="md:col-span-2 overflow-hidden">
+              <CardContent className="p-0 h-[400px] relative">
+                {!isLoaded ? (
+                  <div className="w-full h-full bg-muted flex items-center justify-center">
+                    <p className="text-muted-foreground animate-pulse">Loading map...</p>
                   </div>
-                </div>
+                ) : (
+                  <GoogleMap
+                    mapContainerStyle={MAP_CONTAINER_STYLE}
+                    center={DEFAULT_CENTER}
+                    zoom={10}
+                    options={{ disableDefaultUI: true, zoomControl: true }}
+                  >
+                    {events.map((event) => (
+                      <Marker
+                        key={`event-${event.id}`}
+                        position={{ lat: event.location.lat, lng: event.location.lng }}
+                        onClick={() => setSelectedEvent(event)}
+                        icon={{ url: "http://maps.google.com/mapfiles/ms/icons/blue-dot.png" }}
+                      />
+                    ))}
+                    {selectedEvent && (
+                      <InfoWindow
+                        position={{ lat: selectedEvent.location.lat, lng: selectedEvent.location.lng }}
+                        onCloseClick={() => setSelectedEvent(null)}
+                      >
+                        <div className="p-2 max-w-[200px] text-sm text-black">
+                          <p className="font-semibold mb-1">{selectedEvent.title}</p>
+                          <p className="text-xs text-gray-500">{selectedEvent.location.address}</p>
+                        </div>
+                      </InfoWindow>
+                    )}
+                  </GoogleMap>
+                )}
               </CardContent>
             </Card>
 
